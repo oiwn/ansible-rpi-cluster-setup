@@ -1,0 +1,17 @@
+---
+- hosts: raspberry_pi5
+  become: yes
+  tasks:
+    - name: Update and upgrade apt packages
+      apt:
+        update_cache: yes
+        upgrade: yes
+
+    - name: Install software
+      apt:
+        name:
+          - build-essential
+          - nfs-kernel-server
+          - tcpdump
+          - dnsmasq
+        state: present

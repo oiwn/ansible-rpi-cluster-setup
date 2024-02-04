@@ -1,0 +1,152 @@
+---
+- hosts: main
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Get current router address
+      shell: ip route | awk '/default/ {print $3}'
+      register: router_address_output
+
+    - name: Print the router address
+      debug:
+        msg: "The current router address is: {{ router_address_output.stdout }}"
+
+    - name: Store router address as fact
+      set_fact:
+        router_address: "{{ router_address_output.stdout }}"
+
+    - name: Get rasp1s.local IP and broadcast address
+      shell: ip -4 addr show dev eth0 | grep inet | awk '{print $2, $4}'
+      register: ip_output
+      changed_when: false
+
+    - name: Set IP and broadcast address facts
+      set_fact:
+        ip_address: "{{ ip_output.stdout.split('/')[0] }}"
+        broadcast_address: "{{ ip_output.stdout.split(' ')[1] }}"
+
+    - name: Print collected facts
+      debug:
+        msg: "IP: {{ ip_address }}\nBroadcast: {{ broadcast_address}}\nRouter: {{ router_address}}"
+
+    - name: Store dns server ip address
+      shell: cat /etc/resolv.conf | grep 'nameserver' | awk '{print $2}'
+      register: dns_address_output
+
+    - name: Print dns server ip
+      debug:
+        msg: "The dns ip address is: {{ dns_address_output.stdout }}"
+
+    - name: Set dns server ip as fact
+      set_fact:
+        dns_address: "{{ dns_address_output.stdout }}"
+ 
+    - name: Create /etc/systemd/network/10-eth0.netdev from template
+      ansible.builtin.template:
+        src: templates/10-eth0.netdev.j2
+        dest: /etc/systemd/network/10-eth0.netdev
+
+    - name: Create /etc/systemd/network/11-eth0.network from template
+      ansible.builtin.template:
+        src: templates/11-eth0.network.j2
+        dest: /etc/systemd/network/11-eth0.network
+
+    - name: Create /etc/systemd/resolved.conf from template
+      ansible.builtin.template:
+        src: templates/resolved.conf.j2
+        dest: /etc/systemd/resolved.conf
+
+    - name: Enable systemd-networkd
+      ansible.builtin.systemd:
+        name: systemd-networkd
+        enabled: yes
+        state: started
+
+    # - name: Reboot and wait it to return
+    #   ansible.builtin.reboot:
+    
+    # - name: Return from reboot
+    #   debug:
+    #     msg: "Welcome back!"
+
+    - name: Enable and start dnsmasq
+      ansible.builtin.systemd:
+        name: dnsmasq
+        enabled: yes
+        state: started
+
+    - name: Configure dnsmasq
+      ansible.builtin.template:
+        src: dnsmasq.conf.j2
+        dest: /etc/dnsmasq.conf
+      notify: restart dnsmasq
+
+    - name: Create /tftpboot directory
+      ansible.builtin.file:
+        path: /tftpboot
+        state: directory
+        mode: '0777'
+
+    - name: Add /nfs/raspb2_filesystem to /etc/exports
+      ansible.builtin.lineinfile:
+        path: /etc/exports
+        line: "/nfs/raspb2_filesystem *(rw,sync,no_subtree_check,no_root_squash)"
+        create: yes
+        state: present
+
+    - name: Add /tftpboot to /etc/exports
+      ansible.builtin.lineinfile:
+        path: /etc/exports
+        line: "/tftpboot *(rw,sync,no_subtree_check,no_root_squash)"
+        create: yes
+        state: present
+
+    - name: Enable and restart rpcbind
+      ansible.builtin.systemd:
+        name: rpcbind
+        enabled: yes
+        state: restarted
+
+    - name: Enable and restart nfs-kernel-server
+      ansible.builtin.systemd:
+        name: nfs-kernel-server
+        enabled: yes
+        state: restarted
+
+    - name: Update cmdline.txt for NFS boot
+      ansible.builtin.shell: |
+        sed -i 's/root=[^ ]*/root=\/dev\/nfs nfsroot={{ ip_address }}:\/nfs\/raspb2_filesystem,vers=3 rw ip=dhcp rootwait/' /tftpboot/cmdline.txt
+        sed -i '/ init=/d' /tftpboot/cmdline.txt
+
+    - name: Remove any lines with PARTUUID from /etc/fstab
+      ansible.builtin.lineinfile:
+        path: "/nfs/raspb2_filesystem/etc/fstab"
+        regexp: '^.*PARTUUID=.*$'
+        state: absent
+
+    - name: Add NFS boot partition entry to /etc/fstab
+      ansible.builtin.lineinfile:
+        path: "/nfs/raspb2_filesystem/etc/fstab"
+        line: "{{ ip_address }}:/tftpboot /boot/firmware/ nfs defaults,vers=3 0 0"
+        state: present
+
+    - name: Set new hostname in /etc/hostname
+      ansible.builtin.copy:
+        dest: "/nfs/raspb2_filesystem/etc/hostname"
+        content: "raspb2"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Update /etc/hosts with new hostname for 127.0.1.1
+      ansible.builtin.lineinfile:
+        path: "/nfs/raspb2_filesystem/etc/hosts"
+        regexp: '^127\.0\.1\.1\s+.*$'
+        line: "127.0.1.1 raspb2"
+        state: present
+        
+  handlers:
+    - name: restart dnsmasq
+      ansible.builtin.systemd:
+        name: dnsmasq
+        state: restarted

@@ -1,0 +1,4 @@
+---
+- name: Print a message
+  debug:
+    msg: "Hello from netboot role"
