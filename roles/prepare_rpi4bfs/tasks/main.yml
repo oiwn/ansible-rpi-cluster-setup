@@ -1,0 +1,40 @@
+---
+- name: Ensure NFS client directory exists
+  file:
+    path: /rpi_filesystem/base
+    state: directory
+    mode: '0755'
+
+- name: Install rsync
+  apt:
+    name: rsync
+    state: present
+    update_cache: yes
+
+- name: Copy filesystem within the remote host
+  shell: rsync -xa --progress --exclude /rpi_filesystem / /rpi_filesystem/base
+
+- name: Copy base filesystem to directories named after each worker's serial
+  command: rsync -av --exclude=/nfs /rpi_filesystem/base/ /rpi_filesystem/{{ hostvars[item]['serial'] }}/
+  loop: "{{ groups['workers'] }}"
+  loop_control:
+    loop_var: item
+  vars:
+    ansible_ssh_extra_args: "-o StrictHostKeyChecking=no"  # In case you need to bypass SSH host key checking
+
+- name: Setup SSH for each worker
+  shell: |
+    set -e  # Ensure the script exits on first error
+    cd /rpi_filesystem/{{ hostvars[item]['serial'] }}
+    mount --bind /dev dev
+    mount --bind /sys sys
+    mount --bind /proc proc
+    chroot . rm /etc/ssh/ssh_host_*
+    chroot . dpkg-reconfigure openssh-server
+    umount dev sys proc
+  loop: "{{ groups['workers'] }}"
+  loop_control:
+    loop_var: item
+  ignore_errors: no  # Optional, depending on whether you want to stop execution on an error
+
+
