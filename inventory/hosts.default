@@ -1,0 +1,20 @@
+[main]
+# Permanent address:
+# username@raspb:~ $  ethtool -P eth0
+# Serial:
+# username@raspb:~ $ grep Serial /proc/cpuinfo | cut -d ' ' -f 2 | cut -c 9-16
+raspb1s.local ansible_user=username mac_address="{mac_address}" ip="{ip}" serial="{serial}"
+
+[workers]
+raspb2.local ansible_user=alexc mac_address="{mac_address}" ip="{ip}" serial="{serial}"
+raspb3.local ansible_user=alexc mac_address="{mac_address}" ip="{ip}" serial="{serial}"
+
+[fallback]
+raspb1.local purpose="fallback" ip="{ip}"
+
+[image]
+raspb-img4b.local purpose="filesystems" ip="{ip}"
+
+[cluster:children]
+main
+workers

@@ -2,3 +2,6 @@ rp4b_filesystem/
 rp4b_firmware/
 
 hosts.ini
+
+.DS_Store
+.code
