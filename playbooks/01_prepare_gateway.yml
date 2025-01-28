@@ -1,0 +1,79 @@
+---
+- name: Initial Gateway Pi 5 Setup
+  hosts: main
+  become: true
+
+  vars:
+    gateway_hostname: "raspb1s"  # Matching your naming scheme
+    required_packages:
+      # Basic system utilities
+      - build-essential
+      - net-tools
+      - tcpdump
+      - iptables
+      - vim
+      - htop
+      - git
+      - curl
+      - rsync
+      # Network-related packages
+      - dnsmasq
+      - nfs-kernel-server
+      - bridge-utils
+      # Additional useful tools
+      - iotop
+      - iftop
+      - nmon
+      # Storage tools for SSD management
+      - parted
+      - nfs-common
+
+  tasks:
+    - name: Update apt cache and upgrade packages
+      apt:
+        update_cache: yes
+        upgrade: yes
+
+    - name: Install required packages
+      apt:
+        name: "{{ required_packages }}"
+        state: present
+
+    - name: Set hostname
+      hostname:
+        name: "{{ gateway_hostname }}"
+
+    - name: Update hosts file
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1'
+        line: '127.0.1.1 {{ gateway_hostname }}'
+
+    - name: Enable IP forwarding for gateway functionality
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: '1'
+        state: present
+        reload: yes
+        sysctl_file: /etc/sysctl.d/99-router.conf
+
+    - name: Ensure SSH server is running and enabled
+      service:
+        name: ssh
+        state: started
+        enabled: yes
+
+    # This will help with monitoring
+    - name: Configure logging for network services
+      lineinfile:
+        path: /etc/rsyslog.conf
+        line: "local7.*                      /var/log/network.log"
+        insertafter: EOF
+        create: yes
+      notify: restart rsyslog
+
+  handlers:
+    - name: restart rsyslog
+      service:
+        name: rsyslog
+        state: restarted

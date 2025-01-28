@@ -1,20 +1,39 @@
-[main]
-# Permanent address:
-# username@raspb:~ $  ethtool -P eth0
-# Serial:
-# username@raspb:~ $ grep Serial /proc/cpuinfo | cut -d ' ' -f 2 | cut -c 9-16
-raspb1s.local ansible_user=username mac_address="{mac_address}" ip="{ip}" serial="{serial}"
+---
+all:
+  children:
+    main:
+      hosts:
+        raspb1s.local:
+          ansible_user: your_user
+          # ethtool -P eth0
+          eth0_mac: "xx:xx:xx:xx:xx:xx"
+          # ethtool -P wlan0
+          wlan0_mac: "xx:xx:xx:xx:xx:xx"
+          wifi_ip: "0.0.0.0"
+          cluster_ip: "10.0.0.1"
+          # serial: grep Serial /proc/cpuinfo | cut -d ' ' -f 2 | cut -c 9-16
+          serial: "xxxxxxxx"
 
-[workers]
-raspb2.local ansible_user=alexc mac_address="{mac_address}" ip="{ip}" serial="{serial}"
-raspb3.local ansible_user=alexc mac_address="{mac_address}" ip="{ip}" serial="{serial}"
+    workers:
+      hosts:
+        raspb2.local:
+          ansible_user: your_user
+          mac_address: "xx:xx:xx:xx:xx:xx"
+          ip: "10.0.0.2"
+          serial: "xxxxxxxx"
+        raspb3.local:
+          ansible_user: your_user
+          mac_address: "xx:xx:xx:xx:xx:xx"
+          ip: "10.0.0.3"
+          serial: "xxxxxxxx"
 
-[fallback]
-raspb1.local purpose="fallback" ip="{ip}"
+    fallback:
+      hosts:
+        raspb1f.local:
+          purpose: "fallback"
+          ip: "0.0.0.0"
 
-[image]
-raspb-img4b.local purpose="filesystems" ip="{ip}"
-
-[cluster:children]
-main
-workers
+    cluster:
+      children:
+        main:
+        workers:
