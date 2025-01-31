@@ -1,0 +1,16 @@
+authoritative;
+subnet {{ hostvars[inventory_hostname].cluster_ip.split('.')[0] }}.{{ hostvars[inventory_hostname].cluster_ip.split('.')[1] }}.{{ hostvars[inventory_hostname].cluster_ip.split('.')[2] }}.0 netmask 255.255.255.0 {
+  range {{ hostvars[inventory_hostname].cluster_ip.split('.')[0] }}.{{ hostvars[inventory_hostname].cluster_ip.split('.')[1] }}.{{ hostvars[inventory_hostname].cluster_ip.split('.')[2] }}.100 {{ hostvars[inventory_hostname].cluster_ip.split('.')[0] }}.{{ hostvars[inventory_hostname].cluster_ip.split('.')[1] }}.{{ hostvars[inventory_hostname].cluster_ip.split('.')[2] }}.200;
+  option routers {{ hostvars[inventory_hostname].cluster_ip }};
+  option domain-name-servers 8.8.8.8, 8.8.4.4;
+  default-lease-time 600;
+  max-lease-time 7200;
+
+  # Static assignments for worker nodes
+{% for host in groups['workers'] %}
+  host {{ hostvars[host].inventory_hostname }} {
+    hardware ethernet {{ hostvars[host].mac_address }};
+    fixed-address {{ hostvars[host].ip }};
+  }
+{% endfor %}
+}

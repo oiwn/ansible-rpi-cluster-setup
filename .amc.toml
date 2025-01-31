@@ -1,5 +1,5 @@
 delimiter = "---"
-extensions = [".yaml", ".py", ".yml", ".j2"]  # Add any file extensions you want to process
+extensions = [".yaml", ".py", ".yml", ".j2", ".default"]  # Add any file extensions you want to process
 llm_prompt = """
 This is a collection of ansible chart files from a project. Each file is separated by '---' delimiters.
 The files include path and Git metadata showing their last modification details.
@@ -19,10 +19,10 @@ Key points for analysis:
 4. Consider suggesting improvements while maintaining the existing design philosophy
 
 Network setup i want:
-   - Raspberry Pi 5 connects to router with internet via WiFi
-   - Raspberry Pi 5 acts as a network gateway
+   - Raspberry Pi 5 connects to router with internet via WiFi (wlan0 interface)
+   - Raspberry Pi 5 acts as a network gateway (through eth0)
    - The two Raspberry Pi 4B units connect to the switch
-   - The switch connects to the Pi 5 through LAN port
+   - The switch connects to the Pi 5 through LAN port (eth0)
    - Pi 5 routes internet traffic for the Pi 4B units
 
 Software:
@@ -33,14 +33,10 @@ Desired setup:
 
    The Pi 5 (Gateway) Setup:
 
-   - Acts as NFS server sharing the SSD
-   - Handles network routing
-   - Provides filesystems for Pi 4B units
-
-   The Pi 4B Units:
-
-   - Boot and mount filesystems from the Pi 5 via NFS
-   - Get network connectivity through Pi 5
+   - All raspis booted up from SD cards
+   - k3s cluter setup
+   - Provides block storage from 1TB SSD
+   - Minimize I/O ops for SD cards
 
 All setup should be done using Ansible charts.
 """
