@@ -1,0 +1,2 @@
+ip: "192.168.1.205"  # Fallback RPI static IP
+netmask: "255.255.255.0"

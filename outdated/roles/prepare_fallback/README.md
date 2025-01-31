@@ -3,7 +3,13 @@ Role Name
 
 Main Rpi board has 2 boot option 1) from SD card 2) from SSD
 First option used as backup, if something happened it's always possible to boot
-from SD card as backup option
+from SD card as fallback  option.
+
+This playbook implement the following:
+
+  - Update rpi1 and install required software
+  - Assign static IP address
+  - Bridge traffic from wifi to LAN port
 
 Requirements
 ------------

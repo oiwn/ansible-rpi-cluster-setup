@@ -1,0 +1,216 @@
+---
+- name: Initial Gateway Pi 5 Setup
+  hosts: main
+  become: true
+
+  vars:
+    required_packages:
+      # Basic system utilities
+      - build-essential
+      - net-tools
+      - tcpdump
+      - iptables
+      - vim
+      - htop
+      - git
+      - curl
+      - rsync
+      # Network-related packages
+      - ifupdown
+      - dnsmasq
+      - bridge-utils
+      - isc-dhcp-server
+      # Additional useful tools
+      - iotop
+      - iftop
+      - nmon
+
+  tasks:
+    - name: Update apt cache and upgrade packages
+      apt:
+        update_cache: yes
+        upgrade: yes
+
+    - name: Install required packages
+      apt:
+        name: "{{ required_packages }}"
+        state: present
+
+    - name: Ensure network interfaces directory exists
+      file:
+        path: /etc/network/interfaces.d
+        state: directory
+        mode: '0755'
+
+    # Network Configuration
+    - name: Configure eth0 static IP
+      copy:
+        dest: /etc/network/interfaces.d/eth0
+        content: |
+          auto eth0
+          iface eth0 inet static
+            address {{ hostvars[inventory_hostname].cluster_ip }}
+            netmask 255.255.255.0
+        mode: '0644'
+
+    - name: Enable IP forwarding
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: '1'
+        state: present
+        reload: yes
+        sysctl_file: /etc/sysctl.d/99-router.conf
+
+    - name: Get current sysctl settings
+      shell: sysctl net.ipv4.ip_forward
+      register: sysctl_status
+      
+    - name: Display sysctl status
+      debug:
+        var: sysctl_status.stdout_lines
+
+    # NAT Configuration
+    - name: Set up NAT rules
+      iptables:
+        table: nat
+        chain: POSTROUTING
+        out_interface: wlan0
+        jump: MASQUERADE
+        state: present
+
+    - name: Save iptables rules
+      shell: |
+        iptables-save > /etc/iptables.rules
+      changed_when: false
+
+    - name: Ensure iptables rules are loaded at boot
+      copy:
+        dest: /etc/network/if-pre-up.d/iptables
+        content: |
+          #!/bin/sh
+          iptables-restore < /etc/iptables.rules
+        mode: '0755'
+
+    # Restart networking and verify interface
+    - name: Restart networking
+      shell: |
+        ifdown eth0 || true
+        sleep 1
+        ifup eth0
+      ignore_errors: yes
+  
+    - name: Wait for interface to come up
+      wait_for:
+        timeout: 5
+
+    - name: Verify eth0 IP address
+      shell: ip addr show eth0 | grep inet
+      register: eth0_ip_check
+      until: eth0_ip_check.stdout != ""
+      retries: 3
+      delay: 5
+
+    # Debug and Network Status
+    - name: Get full network status
+      shell: |
+        echo "=== Network Interfaces ==="
+        ip a
+        echo -e "\n=== Routes ==="
+        ip route
+        echo -e "\n=== IP Forward Status ==="
+        sysctl net.ipv4.ip_forward
+        echo -e "\n=== NAT Rules ==="
+        iptables -t nat -L
+      register: network_status
+      
+    - name: Display network status
+      debug:
+        var: network_status.stdout_lines
+
+    # DHCP Server Configuration
+    - name: Configure DHCP server for worker nodes
+      template:
+        src: ../templates/dhcpd.conf.j2
+        dest: /etc/dhcp/dhcpd.conf
+      notify: restart dhcp
+
+    - name: Configure DHCP server defaults
+      template:
+        src: ../templates/isc-dhcp-server.j2
+        dest: /etc/default/isc-dhcp-server
+      notify: restart dhcp
+
+    - name: Verify DHCP config syntax
+      shell: dhcpd -t -cf /etc/dhcp/dhcpd.conf
+      register: dhcp_verify
+      ignore_errors: yes
+
+    - name: Display DHCP verify result
+      debug:
+        msg: "{{ dhcp_verify.stderr.split('\n') }}"
+
+    - name: Show DHCP conf content
+      shell: cat /etc/dhcp/dhcpd.conf
+      register: dhcp_conf
+      
+    - name: Display DHCP configuration
+      debug:
+        var: dhcp_conf.stdout_lines
+
+    - name: Get journalctl DHCP logs
+      shell: journalctl -u isc-dhcp-server.service -n 50 --no-pager
+      register: journal_logs
+      ignore_errors: yes
+
+    - name: Display journalctl logs
+      debug:
+        var: journal_logs.stdout_lines
+
+    # Final Network Check and Service Start
+    - name: Final network check
+      shell: |
+        echo "=== Final Network Status ==="
+        ip addr show eth0
+        echo -e "\n=== Final Routes ==="
+        ip route
+      register: final_status
+
+    - name: Display final status
+      debug:
+        var: final_status.stdout_lines
+
+    - name: Try start DHCP server
+      service:
+        name: isc-dhcp-server
+        state: started
+        enabled: yes
+      ignore_errors: yes
+
+    - name: Final DHCP server status
+      shell: systemctl status isc-dhcp-server
+      register: final_dhcp_status
+      ignore_errors: yes
+
+    - name: Display final DHCP status
+      debug:
+        var: final_dhcp_status.stdout_lines
+
+    # Logging Configuration
+    - name: Configure logging for network services
+      lineinfile:
+        path: /etc/rsyslog.conf
+        line: "local7.*                      /var/log/network.log"
+        insertafter: EOF
+        create: yes
+      notify: restart rsyslog
+
+  handlers:
+    - name: restart dhcp
+      service:
+        name: isc-dhcp-server
+        state: restarted
+
+    - name: restart rsyslog
+      service:
+        name: rsyslog
+        state: restarted

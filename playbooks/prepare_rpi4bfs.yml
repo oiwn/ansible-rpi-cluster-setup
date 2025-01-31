@@ -1,6 +1,0 @@
----
-- name: Setup NFS client filesystem on target hosts
-  hosts: raspb-img4b.local
-  become: true
-  roles:
-    - prepare_rpi4bfs
