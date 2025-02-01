@@ -1,0 +1,48 @@
+---
+- name: Storage Setup for Gateway Pi 5
+  hosts: main
+  become: true
+  gather_facts: no  # Disable fact gathering initially
+  vars:
+    storage_device: /dev/sda
+    mount_point: /mnt/k3s-storage
+    filesystem: ext4
+
+  pre_tasks:
+    # Test basic connectivity and command execution
+    - name: Test basic command execution
+      raw: whoami
+      register: whoami_result
+      
+    - name: Display test result
+      debug:
+        var: whoami_result.stdout
+
+    # Try package operations using raw commands
+    - name: Update package cache
+      raw: apt-get update
+      register: apt_update_result
+      
+    - name: Display apt update result
+      debug:
+        var: apt_update_result.stdout
+
+    - name: Install packages using raw command
+      raw: DEBIAN_FRONTEND=noninteractive apt-get install -y parted e2fsprogs
+      register: apt_install_result
+      
+    - name: Display install result
+      debug:
+        var: apt_install_result.stdout
+
+  tasks:
+    # Only proceed if we get this far
+    - name: Verify storage device exists
+      stat:
+        path: "{{ storage_device }}"
+      register: device_check
+      failed_when: not device_check.stat.exists
+      
+    - name: Show device status
+      debug:
+        msg: "Device {{ storage_device }} exists: {{ device_check.stat.exists }}"
