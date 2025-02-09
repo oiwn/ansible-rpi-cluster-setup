@@ -1,8 +1,4 @@
-rp4b_filesystem/
-rp4b_firmware/
-
+.DS_Store
 hosts.ini
 hosts.yml
-
-.DS_Store
 .code
