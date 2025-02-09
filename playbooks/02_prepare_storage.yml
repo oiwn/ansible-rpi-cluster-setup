@@ -2,47 +2,89 @@
 - name: Storage Setup for Gateway Pi 5
   hosts: main
   become: true
-  gather_facts: no  # Disable fact gathering initially
+  gather_facts: true
   vars:
     storage_device: /dev/sda
     mount_point: /mnt/k3s-storage
     filesystem: ext4
-
-  pre_tasks:
-    # Test basic connectivity and command execution
-    - name: Test basic command execution
-      raw: whoami
-      register: whoami_result
-      
-    - name: Display test result
-      debug:
-        var: whoami_result.stdout
-
-    # Try package operations using raw commands
-    - name: Update package cache
-      raw: apt-get update
-      register: apt_update_result
-      
-    - name: Display apt update result
-      debug:
-        var: apt_update_result.stdout
-
-    - name: Install packages using raw command
-      raw: DEBIAN_FRONTEND=noninteractive apt-get install -y parted e2fsprogs
-      register: apt_install_result
-      
-    - name: Display install result
-      debug:
-        var: apt_install_result.stdout
+    partition_number: 1
 
   tasks:
-    # Only proceed if we get this far
+    - name: Install required packages
+      apt:
+        name:
+          - parted
+          - e2fsprogs
+          - hdparm
+          - util-linux
+        state: present
+        update_cache: yes
+
+    - name: Unmount any existing filesystem
+      shell: umount {{ storage_device }}* || true
+      changed_when: false
+      ignore_errors: true
+
+    - name: Remove existing mount point from /etc/fstab
+      lineinfile:
+        path: /etc/fstab
+        regexp: "^{{ mount_point }} "
+        state: absent
+
+    - name: Wipe existing partition table
+      shell: |
+        dd if=/dev/zero of={{ storage_device }} bs=512 count=2048
+        wipefs -a {{ storage_device }}
+      ignore_errors: true
+
     - name: Verify storage device exists
       stat:
         path: "{{ storage_device }}"
       register: device_check
       failed_when: not device_check.stat.exists
-      
-    - name: Show device status
+
+    - name: Create new GPT partition table
+      command: parted -s {{ storage_device }} mklabel gpt
+      when: device_check.stat.exists
+
+    - name: Create partition
+      command: parted -s {{ storage_device }} mkpart primary 0% 100%
+      when: device_check.stat.exists
+
+    - name: Format the partition with ext4
+      filesystem:
+        fstype: "{{ filesystem }}"
+        dev: "{{ storage_device }}{{ partition_number }}"
+        opts: -F -L k3s-storage
+      when: device_check.stat.exists
+
+    - name: Create mount point directory
+      file:
+        path: "{{ mount_point }}"
+        state: directory
+        mode: '0755'
+
+    - name: Ensure filesystem is mounted persistently
+      mount:
+        path: "{{ mount_point }}"
+        src: "LABEL=k3s-storage"
+        fstype: "{{ filesystem }}"
+        opts: defaults,noatime,discard
+        state: mounted
+
+    - name: Create Longhorn data directory
+      file:
+        path: "{{ mount_point }}/longhorn"
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Get filesystem information
+      command: df -h {{ mount_point }}
+      register: df_output
+      changed_when: false
+
+    - name: Display filesystem information
       debug:
-        msg: "Device {{ storage_device }} exists: {{ device_check.stat.exists }}"
+        var: df_output.stdout_lines

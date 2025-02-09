@@ -1,0 +1,33 @@
+---
+- name: Generate SSH keys on main node
+  hosts: main
+  become: true
+  vars:
+    ssh_key_filename: "id_rsa_k3s"
+  tasks:
+    - name: Ensure .ssh directory exists
+      file:
+        path: "/home/{{ ansible_user }}/.ssh"
+        state: directory
+        mode: '0700'
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+    - name: Generate SSH key pair
+      openssh_keypair:
+        path: "/home/{{ ansible_user }}/.ssh/{{ ssh_key_filename }}"
+        type: rsa
+        size: 4096
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      register: ssh_key
+
+    - name: Read the public key
+      slurp:
+        src: "/home/{{ ansible_user }}/.ssh/{{ ssh_key_filename }}.pub"
+      register: public_key
+
+    - name: Store public key
+      set_fact:
+        public_key_content: "{{ public_key.content | b64decode }}"
+

@@ -1,0 +1,76 @@
+---
+- name: Install K3s Server on Main Node
+  hosts: main
+  become: true
+
+  tasks:
+    - name: Check if cgroup memory is enabled
+      command: grep cgroup_memory /boot/firmware/cmdline.txt
+      register: cgroup_check
+      failed_when: false
+      changed_when: false
+
+    - name: Enable cgroup memory in cmdline.txt
+      lineinfile:
+        path: /boot/firmware/cmdline.txt
+        backrefs: yes
+        regexp: '^((?!.*\bcgroup_memory=1 cgroup_enable=memory\b).*)$'
+        line: '\1 cgroup_memory=1 cgroup_enable=memory'
+      when: cgroup_check.rc != 0
+      register: cgroup_updated
+
+    - name: Reboot if cgroup settings were updated
+      reboot:
+      when: cgroup_updated.changed
+
+    - name: Download K3s install script
+      get_url:
+        url: https://get.k3s.io
+        dest: /tmp/k3s-install.sh
+        mode: '0755'
+
+    - name: Install K3s server
+      shell: |
+        INSTALL_K3S_EXEC="--node-ip={{ ansible_default_ipv4.address }} \
+          --advertise-address={{ ansible_default_ipv4.address }} \
+          --data-dir=/mnt/k3s-storage/k3s \
+          --default-local-storage-path=/mnt/k3s-storage/local-path-provisioner"
+        sh /tmp/k3s-install.sh
+      args:
+        creates: /usr/local/bin/k3s
+
+    - name: Wait for node-token
+      wait_for:
+        path: /var/lib/rancher/k3s/server/node-token
+
+    - name: Get node token
+      command: cat /var/lib/rancher/k3s/server/node-token
+      register: node_token
+      changed_when: false
+
+    - name: Store token for worker nodes
+      set_fact:
+        k3s_token: "{{ node_token.stdout }}"
+
+    - name: Ensure .kube directory exists
+      file:
+        path: /root/.kube
+        state: directory
+        mode: '0700'
+
+    - name: Copy kubeconfig for root
+      copy:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: /root/.kube/config
+        remote_src: yes
+        mode: '0600'
+
+- name: Install K3s Agent on Worker Nodes
+  hosts: workers
+  become: true
+  tasks:
+    - name: Download K3s install script
+      get_url:
+        url: https://get.k3s.io
+        dest: /tmp/k3s-install.sh
+        mode:

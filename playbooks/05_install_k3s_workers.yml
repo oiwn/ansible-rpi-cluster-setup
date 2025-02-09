@@ -1,0 +1,38 @@
+---
+- name: Install K3s Agent on Worker Nodes
+  hosts: all
+  become: true
+  tasks:
+    - name: Check if cgroup memory is enabled
+      command: grep cgroup_memory /boot/firmware/cmdline.txt
+      register: cgroup_check
+      failed_when: false
+      changed_when: false
+
+    - name: Enable cgroup memory in cmdline.txt
+      lineinfile:
+        path: /boot/firmware/cmdline.txt
+        backrefs: yes
+        regexp: '^((?!.*\bcgroup_memory=1 cgroup_enable=memory\b).*)$'
+        line: '\1 cgroup_memory=1 cgroup_enable=memory'
+      when: cgroup_check.rc != 0
+      register: cgroup_updated
+
+    - name: Reboot if cgroup settings were updated
+      reboot:
+      when: cgroup_updated.changed
+
+    - name: Download K3s install script
+      get_url:
+        url: https://get.k3s.io
+        dest: /tmp/k3s-install.sh
+        mode: '0755'
+
+    - name: Install K3s agent
+      shell: |
+        K3S_URL="https://{{ hostvars[groups['main'][0]].ansible_default_ipv4.address }}:6443" \
+        K3S_TOKEN="{{ hostvars[groups['main'][0]].k3s_token }}" \
+        INSTALL_K3S_EXEC="--node-ip={{ ansible_default_ipv4.address }}" \
+        sh /tmp/k3s-install.sh
+      args:
+        creates: /usr/local/bin/k3s

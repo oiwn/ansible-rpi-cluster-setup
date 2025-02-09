@@ -13,7 +13,7 @@ Hardware:
    - 1Tb Samsing SSD connected t0 Raspberry Pi 5 USB
 
 Key points for analysis:
-1. Focus on ansible charts
+1. Initiall try to provide some kind of general plan.
 2. Identify any potential quality issues
 3. Note the temporal relationship between changes using Git timestamps
 4. Consider suggesting improvements while maintaining the existing design philosophy

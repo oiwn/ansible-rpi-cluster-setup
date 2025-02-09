@@ -14,6 +14,7 @@
       - htop
       - git
       - curl
+      - sshpass
 
   tasks:
     - name: Update apt cache and upgrade packages
@@ -103,31 +104,35 @@
           WantedBy=multi-user.target
         mode: '0644'
 
-    # dnsmasq Configuration
     - name: Configure dnsmasq
       copy:
         dest: /etc/dnsmasq.conf
         content: |
           interface=eth0
-          bind-dynamic   # Changed from bind-interfaces to allow DNS forwarding
+          bind-dynamic
           domain-needed
           bogus-priv
 
           # DNS configuration
-          server=192.168.1.1   # Add your working DNS from raspb1s
-          no-resolv   # Don't read /etc/resolv.conf
-          no-poll     # Don't poll /etc/resolv.conf
+          server=192.168.1.1
+          no-resolv
+          no-poll
 
-          dhcp-range={{ hostvars[inventory_hostname].cluster_ip.split('.')[0:3] | join('.') }}.100,{{ hostvars[inventory_hostname].cluster_ip.split('.')[0:3] | join('.') }}.200,12h
+          # Disable dynamic DHCP range - we'll only use static assignments
+          dhcp-range={{ hostvars[inventory_hostname].cluster_ip.split('.')[0:3] | join('.') }}.2,static,24h
+          
+          # Set gateway and DNS options
           dhcp-option=option:router,{{ hostvars[inventory_hostname].cluster_ip }}
           dhcp-option=option:dns-server,{{ hostvars[inventory_hostname].cluster_ip }}
-          # dhcp-option=option:dns-server,8.8.8.8,8.8.4.4
           
           # Static DHCP assignments for worker nodes
           {% for host in groups['workers'] %}
-          dhcp-host={{ hostvars[host].mac_address }},{{ hostvars[host].ip }}
+          dhcp-host={{ hostvars[host].mac_address }},{{ hostvars[host].ip }},{{ host }},infinite
           {% endfor %}
-        mode: '0644'
+
+          # Log DHCP for debugging
+          log-dhcp
+          log-queries
 
     - name: Enable and start dnsmasq
       systemd:
