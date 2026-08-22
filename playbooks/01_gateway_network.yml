@@ -1,0 +1,174 @@
+---
+- name: Gateway network (eth0 10.0.0.1/24, dnsmasq DHCP+DNS, NAT via wlan0)
+  hosts: main
+  become: true
+
+  tasks:
+    - name: Install network packages
+      ansible.builtin.apt:
+        name:
+          - dnsmasq
+          - iptables
+        state: present
+        update_cache: true
+
+    - name: Create networkd config directory
+      ansible.builtin.file:
+        path: /etc/systemd/network
+        state: directory
+        mode: "0755"
+
+    - name: Configure eth0 static cluster IP (no built-in DHCP server; dnsmasq owns DHCP)
+      ansible.builtin.copy:
+        dest: /etc/systemd/network/20-eth0.network
+        mode: "0644"
+        content: |
+          [Match]
+          Name=eth0
+
+          [Network]
+          Address={{ cluster_ip }}/24
+          IPForward=yes
+      notify: Restart systemd-networkd
+
+    - name: Make NetworkManager leave eth0 alone (wlan0 stays managed)
+      ansible.builtin.copy:
+        dest: /etc/NetworkManager/conf.d/10-unmanaged-eth0.conf
+        mode: "0644"
+        content: |
+          [keyfile]
+          unmanaged-devices=interface-name:eth0
+      notify: Reload NetworkManager
+
+    - name: Enable and start systemd-networkd
+      ansible.builtin.systemd:
+        name: systemd-networkd
+        enabled: true
+        state: started
+
+    - name: Enable IP forwarding
+      ansible.builtin.sysctl:
+        name: net.ipv4.ip_forward
+        value: "1"
+        state: present
+        sysctl_file: /etc/sysctl.d/99-router.conf
+
+    - name: dnsmasq config (DHCP pool + DNS forward + cluster domain)
+      ansible.builtin.copy:
+        dest: /etc/dnsmasq.conf
+        mode: "0644"
+        content: |
+          interface=eth0
+          bind-dynamic
+          domain-needed
+          bogus-priv
+
+          # DNS: forward to upstream (var from gitignored inventory), serve cluster names
+          server={{ upstream_dns }}
+          no-resolv
+          no-poll
+          local=/cluster/
+          domain=cluster
+          expand-hosts
+
+          # DHCP: dynamic pool so unknown MACs can bootstrap
+          dhcp-range=10.0.0.100,10.0.0.150,255.255.255.0,24h
+          dhcp-option=option:router,{{ cluster_ip }}
+          dhcp-option=option:dns-server,{{ cluster_ip }}
+
+          # Fixed reservations (MACs/IPs come from gitignored inventory):
+          {% for host in groups['workers'] %}
+          dhcp-host={{ hostvars[host].mac_address }},{{ hostvars[host].ip }},{{ host }},infinite
+          {% endfor %}
+
+          log-dhcp
+      notify: Restart dnsmasq
+
+    - name: NAT MASQUERADE out wlan0
+      ansible.builtin.iptables:
+        table: nat
+        chain: POSTROUTING
+        out_interface: wlan0
+        jump: MASQUERADE
+        state: present
+      notify: Persist iptables rules
+
+    - name: iptables restore unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/iptables-restore.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Restore iptables rules
+          Before=network-pre.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/sbin/iptables-restore /etc/iptables.rules
+
+          [Install]
+          WantedBy=multi-user.target
+      notify:
+        - Reload systemd
+        - Enable iptables restore
+
+    - name: Enable dnsmasq
+      ansible.builtin.systemd:
+        name: dnsmasq
+        enabled: true
+        state: started
+
+    - name: Flush handlers before verification
+      ansible.builtin.meta: flush_handlers
+
+    - name: Verify gateway network
+      ansible.builtin.shell: |
+        echo "== eth0 =="
+        ip -br a show eth0
+        echo "== route =="
+        ip route | grep 10.0.0 || echo "no cluster route"
+        echo "== services =="
+        systemctl is-active systemd-networkd dnsmasq
+        echo "== ip_forward =="
+        sysctl -n net.ipv4.ip_forward
+        echo "== listeners (53/67) =="
+        ss -ulnp | grep -E ':53 |:67 ' || echo "no dns/dhcp listeners"
+        echo "== nat =="
+        iptables -t nat -L POSTROUTING -n
+      register: verify
+      changed_when: false
+
+    - name: Show verification
+      ansible.builtin.debug:
+        var: verify.stdout_lines
+
+  handlers:
+    - name: Restart systemd-networkd
+      ansible.builtin.systemd:
+        name: systemd-networkd
+        state: restarted
+
+    - name: Reload NetworkManager
+      ansible.builtin.systemd:
+        name: NetworkManager
+        state: reloaded
+
+    - name: Restart dnsmasq
+      ansible.builtin.systemd:
+        name: dnsmasq
+        state: restarted
+        daemon_reload: true
+
+    - name: Persist iptables rules
+      ansible.builtin.shell: iptables-save > /etc/iptables.rules
+      changed_when: false
+
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Enable iptables restore
+      ansible.builtin.systemd:
+        name: iptables-restore
+        enabled: true
+        state: started

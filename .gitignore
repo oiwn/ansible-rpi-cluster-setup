@@ -2,3 +2,5 @@
 hosts.ini
 hosts.yml
 .code
+.opencode/
+.agents/

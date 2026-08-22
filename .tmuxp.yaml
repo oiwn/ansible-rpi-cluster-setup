@@ -6,7 +6,7 @@ windows:
     start-directory: ./
     panes:
       - shell_command:
-        - helix
+        - hx
   - window_name: agent
     start-directory: ./
     panes:
@@ -21,3 +21,8 @@ windows:
     panes:
       - shell_command:
         - eza --long
+  - window_name: yazi
+    panes:
+      - shell_command:
+        - yazi
+

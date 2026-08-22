@@ -1,0 +1,63 @@
+---
+- name: Cluster diagnostics (read-only)
+  hosts: main
+  gather_facts: no
+  become: true
+  tasks:
+    - name: System
+      ansible.builtin.shell: |
+        hostname
+        grep PRETTY /etc/os-release
+        uname -r
+        uptime
+        grep Serial /proc/cpuinfo
+        vcgencmd measure_temp 2>/dev/null || true
+      register: sys
+      changed_when: false
+
+    - name: Uplink (wlan0)
+      ansible.builtin.shell: |
+        ip -br a show wlan0
+        ip route show default
+        ping -c2 -W2 -I wlan0 8.8.8.8 >/dev/null 2>&1 && echo "internet: OK" || echo "internet: FAIL"
+      register: uplink
+      changed_when: false
+
+    - name: Network config
+      ansible.builtin.shell: |
+        ip -br a
+        ip route
+        networkctl list --no-pager 2>/dev/null || true
+        sysctl net.ipv4.ip_forward
+        iptables -t nat -L POSTROUTING -n --line-numbers 2>/dev/null || echo "no nat rules"
+      register: netcfg
+      changed_when: false
+
+    - name: eth0 link + internal LAN
+      ansible.builtin.shell: |
+        ethtool eth0 2>/dev/null | grep -E 'Link detected|Speed'
+        for i in $(seq 1 12); do ping -c1 -W1 10.0.0.$i >/dev/null 2>&1; done
+        ping -c2 -W1 -b 10.0.0.255 >/dev/null 2>&1
+        ip neigh show dev eth0
+        cat /var/lib/misc/dnsmasq.leases 2>/dev/null || echo "no dnsmasq leases (playbook 01 not run yet)"
+      register: lan
+      changed_when: false
+
+    - name: Storage
+      ansible.builtin.shell: |
+        lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,SERIAL
+        df -h /
+      register: storage
+      changed_when: false
+
+    - name: Report
+      ansible.builtin.debug:
+        msg: "{{ item.stdout_lines }}"
+      loop:
+        - "{{ sys }}"
+        - "{{ uplink }}"
+        - "{{ netcfg }}"
+        - "{{ lan }}"
+        - "{{ storage }}"
+      loop_control:
+        label: "section"
