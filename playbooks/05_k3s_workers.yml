@@ -1,0 +1,56 @@
+---
+# Phase C per specs/ctx.md — k3s agents on workers
+- name: Fetch k3s node token from server
+  hosts: main
+  become: true
+  tasks:
+    - name: Read node token
+      ansible.builtin.command: cat /mnt/k3s-storage/k3s/server/node-token
+      register: node_token
+      changed_when: false
+
+- name: Install k3s agents on workers
+  hosts: workers
+  become: true
+  tasks:
+    - name: Download k3s install script
+      ansible.builtin.get_url:
+        url: https://get.k3s.io
+        dest: /tmp/k3s-install.sh
+        mode: "0755"
+
+    - name: Install k3s agent (joins cluster via gateway API)
+      ansible.builtin.shell: |
+        K3S_URL="https://{{ hostvars[groups['main'][0]].cluster_ip }}:6443" \
+        K3S_TOKEN="{{ hostvars[groups['main'][0]].node_token.stdout }}" \
+        INSTALL_K3S_EXEC="agent \
+          --node-ip={{ ip }} \
+          --node-label node-type=pi4" \
+        sh /tmp/k3s-install.sh
+      args:
+        creates: /usr/local/bin/k3s
+
+    - name: Wait for agent to register (kubelet alive)
+      ansible.builtin.wait_for:
+        path: /var/lib/rancher/k3s/agent/kubelet.kubeconfig
+        timeout: 300
+
+- name: Verify cluster
+  hosts: main
+  become: true
+  tasks:
+    - name: Nodes and pods
+      ansible.builtin.shell: |
+        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+        kubectl get nodes -o wide
+        echo "== system pods =="
+        kubectl get pods -A
+      register: verify
+      changed_when: false
+      retries: 6
+      delay: 20
+      until: "verify.rc == 0 and (verify.stdout | regex_findall('NotReady') | length) == 0"
+
+    - name: Show verification
+      ansible.builtin.debug:
+        var: verify.stdout_lines

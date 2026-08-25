@@ -1,0 +1,83 @@
+---
+# Phase B per specs/ctx.md — k3s server on gateway, state on SSD
+- name: k3s server on gateway
+  hosts: main
+  become: true
+  vars:
+    k3s_data_dir: /mnt/k3s-storage/k3s
+    local_storage_path: /mnt/k3s-storage/volumes
+
+  tasks:
+    - name: Download k3s install script
+      ansible.builtin.get_url:
+        url: https://get.k3s.io
+        dest: /tmp/k3s-install.sh
+        mode: "0755"
+
+    - name: Install k3s server (state on SSD, cluster-LAN API)
+      ansible.builtin.shell: |
+        INSTALL_K3S_EXEC="server \
+          --data-dir={{ k3s_data_dir }} \
+          --node-ip={{ cluster_ip }} \
+          --advertise-address={{ cluster_ip }} \
+          --tls-san=k3s-rspb5m.cluster \
+          --tls-san={{ ansible_host }} \
+          --default-local-storage-path={{ local_storage_path }} \
+          --node-label storage=ssd \
+          --node-label node-type=pi5" \
+        sh /tmp/k3s-install.sh
+      args:
+        creates: /usr/local/bin/k3s
+
+    - name: Wait for node token (server first start)
+      ansible.builtin.wait_for:
+        path: "{{ k3s_data_dir }}/server/node-token"
+        timeout: 300
+
+    - name: Point gateway resolver at local dnsmasq (persistent, applied on reboot)
+      ansible.builtin.shell: |
+        CONN=$(nmcli -t -f NAME,DEVICE con show --active | grep ':wlan0' | cut -d: -f1)
+        nmcli con mod "$CONN" ipv4.dns 127.0.0.1 ipv4.ignore-auto-dns yes
+      register: resolv_fix
+      changed_when: false
+
+    - name: Ensure .kube directory for ansible user
+      ansible.builtin.file:
+        path: "/home/{{ ansible_user }}/.kube"
+        state: directory
+        mode: "0700"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+    - name: kubeconfig for ansible user
+      ansible.builtin.copy:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: "/home/{{ ansible_user }}/.kube/config"
+        remote_src: true
+        mode: "0600"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+    - name: Reboot gateway (applies resolver change; proves boot-integrity)
+      ansible.builtin.reboot:
+        reboot_timeout: 300
+
+    - name: Verify k3s server
+      ansible.builtin.shell: |
+        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+        echo "== node =="
+        kubectl get nodes -o wide
+        echo "== system pods =="
+        kubectl get pods -A --no-headers | head -12
+        echo "== resolv.conf =="
+        cat /etc/resolv.conf
+        echo "== cluster name resolution =="
+        getent hosts k3s-rspb4b1.cluster || echo "cluster DNS FAIL"
+        echo "== data dir on SSD =="
+        du -sh {{ k3s_data_dir }} 2>/dev/null
+      register: verify
+      changed_when: false
+
+    - name: Show verification
+      ansible.builtin.debug:
+        var: verify.stdout_lines

@@ -1,7 +1,0 @@
----
-- name: Configuration for Fallback Raspberry Pi
-  hosts: raspb1.local
-  become: true
-  roles:
-    - common
-    - prepare_fallback

@@ -1,5 +1,0 @@
----
-- name: Print description
-  debug:
-    msg: "Setting up raspberry pi 5 fallback"
-

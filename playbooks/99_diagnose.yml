@@ -46,9 +46,21 @@
     - name: Storage
       ansible.builtin.shell: |
         lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,SERIAL
-        df -h /
+        df -h / /mnt/k3s-storage 2>/dev/null || df -h /
+        findmnt /mnt/k3s-storage 2>/dev/null || echo "SSD not mounted"
       register: storage
       changed_when: false
+
+    - name: k3s cluster (gateway only)
+      ansible.builtin.shell: |
+        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+        kubectl get nodes -o wide
+        kubectl get pods -A | tail -n +2 | awk '{print $4}' | sort | uniq -c
+        systemctl is-active k3s 2>/dev/null || echo "k3s not active"
+        du -sh /mnt/k3s-storage/k3s 2>/dev/null
+      register: k3s
+      changed_when: false
+      when: inventory_hostname in groups['main']
 
     - name: Report
       ansible.builtin.debug:
@@ -59,5 +71,7 @@
         - "{{ netcfg }}"
         - "{{ lan }}"
         - "{{ storage }}"
+        - "{{ k3s }}"
       loop_control:
         label: "section"
+      when: item.stdout_lines is defined

@@ -1,5 +1,0 @@
----
-- name: Setup netboot for raspb1s.local
-  hosts: raspb1s.local
-  roles:
-    - netboot

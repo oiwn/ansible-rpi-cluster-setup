@@ -15,16 +15,20 @@ Playbooks must take such values from inventory hostvars, never hardcode.
   workers = k3s-rspb4b1 @ 10.0.0.2, k3s-rspb4b2 @ 10.0.0.3 (eth0-only,
   reached via ProxyJump through main, ansible_ssh_common_args set in inventory).
 - Gateway done (playbook 01, 2026-08-22): eth0 10.0.0.1/24 (networkd),
-  NetworkManager owns wlan0 only, dnsmasq DHCP+DNS (pool .100-.150,
-  fixed reservations by MAC from inventory, domain=cluster), NAT via wlan0,
-  ip_forward=1, upstream DNS from inventory var `upstream_dns`.
-  NOPASSWD sudo bootstrapped on all 3 nodes.
-- Known gap (todo for k3s phase): Pi5 /etc/resolv.conf points to the home
-  router (NetworkManager), so the gateway itself doesn't resolve *.cluster
-  names; workers resolve fine via DHCP dns-server=10.0.0.1.
+  NetworkManager owns wlan0 only (resolv 127.0.0.1 since playbook 04),
+  dnsmasq DHCP+DNS (pool .100-.150, fixed reservations by MAC from inventory,
+  domain=cluster), NAT via wlan0, ip_forward=1, upstream DNS from inventory
+  var `upstream_dns`. NOPASSWD sudo bootstrapped on all 3 nodes.
+- Storage done (playbook 02, 2026-08-25): SSD GPT+ext4 label k3s-storage at
+  /mnt/k3s-storage (nofail), subdirs k3s/ volumes/ backups/, memory cgroup
+  enabled + fsck.repair on all nodes, journald capped 200M.
+- k3s done (playbooks 04/05, 2026-08-25): server on main (--data-dir on SSD,
+  --node-ip 10.0.0.1, tls-san cluster name + WiFi IP), agents on workers;
+  v1.36.3+k3s1, 3× Ready. Headlamp (playbook 06) at NodePort 30080, token
+  login (SA headlamp-admin, cluster-admin).
 - Playbooks run in numbered order: 00 ping gate, 01 gateway, 02 storage,
-  04/05 k3s. 99 is read-only diagnostics. 03 (ssh keys) was dropped:
-  ProxyJump through main covers all access.
+  04/05 k3s, 06 headlamp. 99 is read-only diagnostics. 03 (ssh keys) was
+  dropped: ProxyJump through main covers all access.
 
 ## One-time bootstrap on a fresh Pi (before Ansible works)
 
@@ -41,6 +45,12 @@ Playbooks must take such values from inventory hostvars, never hardcode.
 
 ## Hardware quirks discovered (2026-08)
 
+- Pi firmware injects `cgroup_disable=memory` AHEAD of cmdline.txt (never
+  visible in the file, only in /proc/cmdline). Fix: append
+  `cgroup_enable=memory cgroup_memory=1` to cmdline.txt — later tokens win.
+  VERIFY with /sys/fs/cgroup/cgroup.controllers (must list memory) or a
+  systemd-run MemoryMax test; /proc/cgroups NEVER shows memory on v2-only
+  kernels and is the wrong check.
 - Cluster case uses L-shaped SD card extender adapters. Oxidized contacts
   cause "Unable to read partition as FAT" boot failures. Fix: clean contacts
   with isopropyl. Cards verified good via `diskutil verifyVolume` on Mac.

@@ -1,0 +1,181 @@
+---
+# Phase A per specs/ctx.md — SSD storage + boot flags + journald caps
+- name: SSD — partition, format, mount on gateway
+  hosts: main
+  become: true
+  vars:
+    storage_device: /dev/sda
+    storage_label: k3s-storage
+    mount_point: /mnt/k3s-storage
+
+  tasks:
+    - name: Check existing filesystem label on disk
+      ansible.builtin.command: lsblk -no LABEL {{ storage_device }}
+      register: disk_label
+      changed_when: false
+
+    - name: Create GPT partition table
+      community.general.parted:
+        device: "{{ storage_device }}"
+        label: gpt
+      when: storage_label not in disk_label.stdout
+
+    - name: Create single partition
+      community.general.parted:
+        device: "{{ storage_device }}"
+        label: gpt
+        number: 1
+        part_start: 0%
+        part_end: 100%
+        state: present
+      when: storage_label not in disk_label.stdout
+
+    - name: Format ext4 with label
+      community.general.filesystem:
+        fstype: ext4
+        dev: "{{ storage_device }}1"
+        opts: "-L {{ storage_label }}"
+      when: storage_label not in disk_label.stdout
+
+    - name: "Mount persistently (nofail — absent SSD never hangs boot)"
+      ansible.posix.mount:
+        path: "{{ mount_point }}"
+        src: "LABEL={{ storage_label }}"
+        fstype: ext4
+        opts: defaults,noatime,nofail,x-systemd.device-timeout=10s
+        state: mounted
+
+    - name: Create SSD subdirectories
+      ansible.builtin.file:
+        path: "{{ mount_point }}/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - k3s
+        - volumes
+        - backups
+
+- name: Boot flags + journald cap on gateway
+  hosts: main
+  become: true
+  tasks:
+    - name: "cmdline: enable cgroup memory, drop imager's cgroup_disable, fsck.repair"
+      ansible.builtin.shell: |
+        CMD=/boot/firmware/cmdline.txt
+        sed -i 's/cgroup_disable=memory //g; s/ cgroup_disable=memory//g' $CMD
+        grep -q 'cgroup_memory=1' $CMD || \
+        sed -i '1s/$/ cgroup_memory=1 cgroup_enable=memory fsck.repair=yes/' $CMD
+        grep -q 'fsck.repair=yes' $CMD || \
+        sed -i '1s/$/ fsck.repair=yes/' $CMD
+        echo "state=$(grep -o 'cgroup_memory=1' $CMD | head -1)"
+      register: cmdline_main
+      changed_when: "'cgroup_memory=1' not in cmdline_main.stdout"
+
+    - name: Cap journald disk usage
+      ansible.builtin.file:
+        path: /etc/systemd/system/journald.conf.d
+        state: directory
+        mode: "0755"
+
+    - name: Drop in journald size cap
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/journald.conf.d/99-size.conf
+        mode: "0644"
+        content: |
+          [Journal]
+          SystemMaxUse=200M
+      notify: Restart journald
+
+    - name: Reboot gateway for cmdline flags
+      ansible.builtin.reboot:
+        reboot_timeout: 300
+      when: cmdline_main.changed
+
+  handlers:
+    - name: Restart journald
+      ansible.builtin.systemd:
+        name: systemd-journald
+        state: restarted
+
+- name: Boot flags + journald cap on workers
+  hosts: workers
+  become: true
+  tasks:
+    - name: "cmdline: enable cgroup memory, drop imager's cgroup_disable, fsck.repair"
+      ansible.builtin.shell: |
+        CMD=/boot/firmware/cmdline.txt
+        sed -i 's/cgroup_disable=memory //g; s/ cgroup_disable=memory//g' $CMD
+        grep -q 'cgroup_memory=1' $CMD || \
+        sed -i '1s/$/ cgroup_memory=1 cgroup_enable=memory fsck.repair=yes/' $CMD
+        grep -q 'fsck.repair=yes' $CMD || \
+        sed -i '1s/$/ fsck.repair=yes/' $CMD
+        echo "state=$(grep -o 'cgroup_memory=1' $CMD | head -1)"
+      register: cmdline_workers
+      changed_when: "'cgroup_memory=1' not in cmdline_workers.stdout"
+
+    - name: Cap journald disk usage
+      ansible.builtin.file:
+        path: /etc/systemd/system/journald.conf.d
+        state: directory
+        mode: "0755"
+
+    - name: Drop in journald size cap
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/journald.conf.d/99-size.conf
+        mode: "0644"
+        content: |
+          [Journal]
+          SystemMaxUse=200M
+      notify: Restart journald
+
+    - name: Reboot workers for cmdline flags
+      ansible.builtin.reboot:
+        reboot_timeout: 300
+      when: cmdline_workers.changed
+
+  handlers:
+    - name: Restart journald
+      ansible.builtin.systemd:
+        name: systemd-journald
+        state: restarted
+
+- name: Verify Phase A
+  hosts: all
+  become: true
+  tasks:
+    - name: Collect verification data
+      ansible.builtin.shell: |
+        echo "== cmdline flags =="
+        grep -o 'cgroup_memory=1 cgroup_enable=memory' /boot/firmware/cmdline.txt || echo MISSING
+        awk 'END{print "cmdline_lines=" NR}' /boot/firmware/cmdline.txt
+        echo "== memory controller (v2) =="
+        grep -qw memory /sys/fs/cgroup/cgroup.controllers || echo "memory MISSING in v2 controllers"
+        echo "== memory limit enforcement (end-to-end) =="
+        systemd-run --user --scope -q -p MemoryMax=100M bash -c \
+          'cut -d: -f3 /proc/self/cgroup | xargs -I{} cat /sys/fs/cgroup{}/memory.max' 2>/dev/null \
+          || echo "memory.max NOT ENFORCED"
+        echo "== uptime =="
+        uptime -s
+      register: ver_all
+      changed_when: false
+
+    - name: Collect mount verification (gateway)
+      ansible.builtin.shell: |
+        echo "== findmnt =="
+        findmnt /mnt/k3s-storage -o TARGET,SOURCE,FSTYPE,OPTIONS
+        echo "== subdirs =="
+        ls /mnt/k3s-storage
+        echo "== df =="
+        df -h /mnt/k3s-storage
+      register: ver_main
+      changed_when: false
+      when: inventory_hostname in groups['main']
+
+    - name: Show verification (all nodes)
+      ansible.builtin.debug:
+        var: ver_all.stdout_lines
+
+    - name: Show verification (gateway storage)
+      ansible.builtin.debug:
+        var: ver_main.stdout_lines
+      when: inventory_hostname in groups['main']

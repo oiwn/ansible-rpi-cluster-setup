@@ -1,0 +1,109 @@
+---
+# Phase D per specs/ctx.md — Headlamp web panel, reachable from home LAN
+- name: Deploy Headlamp
+  hosts: main
+  become: true
+  vars:
+    headlamp_ns: headlamp
+    headlamp_nodeport: 30080
+
+  tasks:
+    - name: Apply Headlamp manifests (namespace, SA, RBAC, deployment, NodePort service)
+      ansible.builtin.shell: |
+        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+        kubectl apply -f - <<'EOF'
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: {{ headlamp_ns }}
+        ---
+        apiVersion: v1
+        kind: ServiceAccount
+        metadata:
+          name: headlamp-admin
+          namespace: {{ headlamp_ns }}
+        ---
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        metadata:
+          name: headlamp-admin
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: ClusterRole
+          name: cluster-admin
+        subjects:
+        - kind: ServiceAccount
+          name: headlamp-admin
+          namespace: {{ headlamp_ns }}
+        ---
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: headlamp
+          namespace: {{ headlamp_ns }}
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: headlamp
+          template:
+            metadata:
+              labels:
+                app: headlamp
+            spec:
+              serviceAccountName: headlamp-admin
+              containers:
+              - name: headlamp
+                image: ghcr.io/headlamp-k8s/headlamp:latest
+                ports:
+                - containerPort: 4466
+        ---
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: headlamp
+          namespace: {{ headlamp_ns }}
+        spec:
+          type: NodePort
+          selector:
+            app: headlamp
+          ports:
+          - port: 80
+            targetPort: 4466
+            nodePort: {{ headlamp_nodeport }}
+        EOF
+      register: apply_out
+      changed_when: "'configured' in apply_out.stdout or 'created' in apply_out.stdout"
+
+    - name: Wait for Headlamp pod Running
+      ansible.builtin.shell: |
+        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+        kubectl -n {{ headlamp_ns }} get pods -l app=headlamp \
+          --no-headers | awk '{print $3}' | grep -qx Running
+      register: pod_state
+      until: pod_state.rc == 0
+      retries: 12
+      delay: 10
+      changed_when: false
+
+    - name: Create long-lived login token
+      ansible.builtin.shell: |
+        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+        kubectl -n {{ headlamp_ns }} create token headlamp-admin --duration=87600h
+      register: headlamp_token
+      changed_when: false
+
+    - name: Verify HTTP endpoint serves the app
+      ansible.builtin.shell: |
+        curl -sf http://{{ cluster_ip }}:{{ headlamp_nodeport }} | grep -o '<title>[^<]*</title>'
+      register: http_check
+      changed_when: false
+      failed_when: http_check.rc != 0
+
+    - name: Access instructions
+      ansible.builtin.debug:
+        msg:
+          - "URL (home LAN):   http://{{ ansible_host }}:{{ headlamp_nodeport }}"
+          - "URL (cluster LAN): http://{{ cluster_ip }}:{{ headlamp_nodeport }}"
+          - "Login: choose 'Token', paste below (valid ~10 years):"
+          - "{{ headlamp_token.stdout }}"
