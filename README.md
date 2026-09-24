@@ -188,8 +188,11 @@ copy any of it somewhere less friendly:
   it behind TLS, or don't expose the NodePort if that's not acceptable.
 - Playbook 05 passes the k3s join token on a shell command line, so it is
   briefly visible in `ps` on the worker.
-- **`99_diagnose.yml` output contains hardware serials and DHCP leases with MAC
-  addresses.** Redact it before pasting into an issue or a gist.
+- **`99_diagnose.yml` output is more identifying than it looks.** It prints your
+  board serials, DHCP leases with MAC addresses, your home-LAN addressing, and —
+  most sensitive of the lot — the gateway's **globally routable IPv6 address**,
+  which geolocates to your ISP and region. Redact all of it before pasting into
+  an issue, a gist, or a chat window.
 - Passwordless sudo is enabled on every node as a prerequisite.
 
 ## Repo layout

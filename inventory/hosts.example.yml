@@ -42,7 +42,9 @@ all:
           mac_address: "xx:xx:xx:xx:xx:xx"
           ansible_ssh_common_args: "-J your_user@192.168.x.x"
 
-    # Convenience group covering every node (used by the verify plays).
+    # Convenience group covering every node. No playbook targets it today
+    # (the verify plays use `hosts: all`) — kept as a handy ad-hoc target,
+    # e.g. `ansible cluster -m ping`.
     cluster:
       children:
         main:
