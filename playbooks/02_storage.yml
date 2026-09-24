@@ -1,5 +1,5 @@
 ---
-# Phase A per specs/ctx.md — SSD storage + boot flags + journald caps
+# SSD storage + boot flags + journald caps
 - name: SSD — partition, format, mount on gateway
   hosts: main
   become: true

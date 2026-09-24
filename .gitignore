@@ -1,6 +1,15 @@
 .DS_Store
+
+# Real inventory: MACs, home-LAN IPs, usernames. Never commit.
+# Start from inventory/hosts.example.yml instead.
+/inventory/hosts.yml
 hosts.ini
-hosts.yml
+
+# Ansible scratch
+*.retry
+.vault_pass
+
+# Local agent/editor tooling
 .code
 .opencode/
 .agents/

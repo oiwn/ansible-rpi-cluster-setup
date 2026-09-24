@@ -1,5 +1,5 @@
 ---
-# Phase D per specs/ctx.md — Headlamp web panel, reachable from home LAN
+# Headlamp web panel, reachable from home LAN
 - name: Deploy Headlamp
   hosts: main
   become: true

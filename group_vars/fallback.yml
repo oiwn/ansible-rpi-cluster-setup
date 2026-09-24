@@ -1,2 +1,0 @@
-ip: "0.0.0.0"  # Fallback RPI static IP (set real value outside git)
-netmask: "255.255.255.0"

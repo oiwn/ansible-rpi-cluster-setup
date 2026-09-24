@@ -1,0 +1,7 @@
+---
+# Install with: ansible-galaxy collection install -r requirements.yml
+collections:
+  # community.general.parted, community.general.filesystem  (02_storage.yml)
+  - name: community.general
+  # ansible.posix.mount                                     (02_storage.yml)
+  - name: ansible.posix

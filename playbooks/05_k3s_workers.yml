@@ -1,5 +1,5 @@
 ---
-# Phase C per specs/ctx.md — k3s agents on workers
+# k3s agents on workers
 - name: Fetch k3s node token from server
   hosts: main
   become: true

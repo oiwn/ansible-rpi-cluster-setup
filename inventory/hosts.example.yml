@@ -1,0 +1,49 @@
+---
+# Template for inventory/hosts.yml (which is gitignored — it holds the real
+# MACs, home-LAN IPs and usernames of your cluster).
+#
+#   cp inventory/hosts.example.yml inventory/hosts.yml
+#
+# Every value below is consumed by a playbook; nothing here is decorative.
+
+all:
+  children:
+    # The Pi 5: WiFi uplink + gateway + k3s server. Reached over the home LAN.
+    main:
+      hosts:
+        gateway-pi5:
+          # Address on your HOME LAN (the wlan0 side). Also used as a tls-san
+          # so kubectl works from your laptop.
+          ansible_host: 192.168.x.x
+          ansible_user: your_user
+          # Static address on the cluster LAN (eth0 side). Gateway + DNS for
+          # the workers; k3s --node-ip / --advertise-address.
+          cluster_ip: "10.0.0.1"
+          # Where dnsmasq forwards DNS it cannot answer — usually your router.
+          upstream_dns: "192.168.x.1"
+
+    # The Pi 4Bs: eth0-only, no route from your laptop. Ansible reaches them by
+    # jumping through the gateway, so ansible_ssh_common_args is required.
+    workers:
+      hosts:
+        worker-pi4-1:
+          ansible_host: 10.0.0.2
+          ansible_user: your_user
+          # Used for the k3s agent's --node-ip.
+          ip: "10.0.0.2"
+          # eth0 MAC — dnsmasq pins this host to the IP above via a fixed
+          # DHCP reservation. Find it with: ethtool -P eth0
+          mac_address: "xx:xx:xx:xx:xx:xx"
+          ansible_ssh_common_args: "-J your_user@192.168.x.x"
+        worker-pi4-2:
+          ansible_host: 10.0.0.3
+          ansible_user: your_user
+          ip: "10.0.0.3"
+          mac_address: "xx:xx:xx:xx:xx:xx"
+          ansible_ssh_common_args: "-J your_user@192.168.x.x"
+
+    # Convenience group covering every node (used by the verify plays).
+    cluster:
+      children:
+        main:
+        workers:

@@ -3,9 +3,7 @@ fail_fast = true
 [[repos]]
 repo = "local"
 hooks = [
-  { id = "fmt", name = "cargo fmt", language = "system", entry = "cargo fmt --check", types = ["rust"], pass_filenames = false },
-  { id = "clippy", name = "cargo clippy", language = "system", entry = "cargo clippy --all-targets --all-features -- -D warnings", types = ["rust"], pass_filenames = false },
-  { id = "test", name = "cargo test", language = "system", entry = "cargo test --all-features", types = ["rust"], pass_filenames = false },
-  { id = "typos", name = "typos", language = "system", entry = "typos", pass_filenames = false },
   { id = "gitleaks", name = "gitleaks", language = "system", entry = "gitleaks git --verbose", pass_filenames = false },
+  { id = "ansible-syntax", name = "ansible syntax-check", language = "system", entry = "ansible-playbook --syntax-check playbooks/00_ping.yml playbooks/01_gateway_network.yml playbooks/02_storage.yml playbooks/04_k3s_server.yml playbooks/05_k3s_workers.yml playbooks/06_headlamp.yml playbooks/99_diagnose.yml", pass_filenames = false },
+  { id = "typos", name = "typos", language = "system", entry = "typos", pass_filenames = false },
 ]

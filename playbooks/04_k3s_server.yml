@@ -1,5 +1,5 @@
 ---
-# Phase B per specs/ctx.md — k3s server on gateway, state on SSD
+# k3s server on gateway, state on SSD
 - name: k3s server on gateway
   hosts: main
   become: true
@@ -20,7 +20,7 @@
           --data-dir={{ k3s_data_dir }} \
           --node-ip={{ cluster_ip }} \
           --advertise-address={{ cluster_ip }} \
-          --tls-san=k3s-rspb5m.cluster \
+          --tls-san={{ inventory_hostname }}.cluster \
           --tls-san={{ ansible_host }} \
           --default-local-storage-path={{ local_storage_path }} \
           --node-label storage=ssd \
@@ -72,7 +72,7 @@
         echo "== resolv.conf =="
         cat /etc/resolv.conf
         echo "== cluster name resolution =="
-        getent hosts k3s-rspb4b1.cluster || echo "cluster DNS FAIL"
+        getent hosts {{ groups['workers'][0] }}.cluster || echo "cluster DNS FAIL"
         echo "== data dir on SSD =="
         du -sh {{ k3s_data_dir }} 2>/dev/null
       register: verify
